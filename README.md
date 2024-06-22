@@ -36,8 +36,8 @@ The `process` function calculates relevance scores for the sentences and prints 
 ## Installation
 Clone the repository:
 ```bash
-git clone https://github.com/danielshort3/sentence-embeddings.git
-cd sentence-embeddings
+git clone https://github.com/danielshort3/smart-sentence-finder.git
+cd smart-sentence-finder
 ```
 
 Install the required packages:
