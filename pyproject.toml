@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-sentence-finder"
+version = "0.1.0"
+description = "Find the most relevant sentences in a document using Sentence-Transformers"
+requires-python = ">=3.10"
+authors = [{name = "Daniel"}]
+dependencies = [
+  "sentence-transformers",
+  "pysbd",
+  "tqdm",
+  "transformers",
+  "scikit-learn",
+  "sentencepiece",
+  "einops",
+  "accelerate",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

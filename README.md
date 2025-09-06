@@ -13,17 +13,15 @@ This repository contains a project aimed at finding the most relevant sentences 
 This project leverages pre-trained sentence-transformer models to identify and rank the most relevant sentences in a text document based on a given query. The process includes loading and cleaning the text, segmenting it into sentences, and calculating relevance scores using cosine similarity.
 
 ## Models
-The repository supports the following pre-trained models:
-- `sentence-transformers/all-mpnet-base-v2`
-- `BAAI/bge-large-en-v1.5`
-- `BAAI/bge-small-en-v1.5`
-- `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`
-- `sentence-transformers/all-distilroberta-v1`
-- `sentence-transformers/paraphrase-distilroberta-base-v1`
-- `sentence-transformers/distiluse-base-multilingual-cased-v2`
-- `sentence-transformers/msmarco-distilbert-cos-v5`
+Default embedding models used:
+- Qwen3-Embedding-4B → `Qwen/Qwen3-Embedding-4B`
+- Jina-Embeddings-v3 → `jinaai/jina-embeddings-v3`
+- Snowflake Arctic-Embed-L-v2 → `Snowflake/snowflake-arctic-embed-l-v2.0`
+- Stella-en-1.5B-v5 → `NovaSearch/stella_en_1.5B_v5`
+- GTE-Large → `thenlper/gte-large`
+- EmbeddingGemma-300M → `google/embeddinggemma-300m`
 
-These models are used to encode both the input query and sentences from the text to compute similarity scores.
+The code loads models via Sentence-Transformers when available, and falls back to Hugging Face Transformers with mean pooling and L2 normalization otherwise. You can override the model list in the CLI with `--models`.
 
 ## Processing Text
 The project includes several helper functions to process the text:
@@ -46,8 +44,98 @@ pip install torch sentence-transformers pysbd
 ```
 
 ## Usage
-Run the notebook to process a text document and find relevant sentences:
 
-1. Place your text file in the data directory.
-2. Modify the input_query variable in the notebook to your desired query.
-3. Execute the cells in the notebook.
+Two options: CLI (recommended) or Docker.
+
+### CLI
+
+1. Install dependencies (torch + libs):
+   ```bash
+   pip install torch sentence-transformers pysbd tqdm transformers scikit-learn
+   ```
+2. Rank sentences against a query:
+   ```bash
+   python -m smart_sentence_finder.cli \
+     rank \
+     --file data/alice_in_wonderland.txt \
+     --query "She wonders about things." \
+     --top 5
+   ```
+   - Add `--models` to override the default list (space-separated).
+   - Use `--chars-per-chunk` to control segmentation chunk size.
+
+3. Benchmark models with silhouette score on Alice sentences:
+   ```bash
+   python -m smart_sentence_finder.cli \
+     benchmark \
+     --file data/alice_in_wonderland.txt \
+     --max-sentences 1000 \
+     --k-min 2 --k-max 10
+   ```
+
+### Docker
+
+ Build and run using a recent PyTorch GPU image (default):
+
+```bash
+docker build -t smart-sentence-finder .
+
+# Run rank (mount data, models, and output to persist downloads and results)
+docker run --rm -it --gpus all \
+  -v "$PWD/data:/app/data" \
+  -v "$PWD/models:/models" \
+  -v "$PWD/output:/app/output" \
+  -e HF_TOKEN=YOUR_HF_TOKEN \
+  smart-sentence-finder \
+  rank --file /app/data/alice_in_wonderland.txt --query "She wonders about things." --top 5 --output-dir /app/output
+
+# Run benchmark
+docker run --rm -it --gpus all \
+  -v "$PWD/data:/app/data" \
+  -v "$PWD/models:/models" \
+  -v "$PWD/output:/app/output" \
+  -e HF_TOKEN=YOUR_HF_TOKEN \
+  smart-sentence-finder \
+  benchmark --file /app/data/alice_in_wonderland.txt --max-sentences 800 --output-dir /app/output
+```
+
+If you need CPU-only, change the `FROM` line in `Dockerfile` to a CPU tag (e.g., `pytorch/pytorch:2.8.0-cpu`) and rebuild. For GPU, run with:
+
+```bash
+docker run --rm -it --gpus all \
+  -v "$PWD/data:/app/data" \
+  -v "$PWD/models:/models" \
+  -v "$PWD/output:/app/output" \
+  -e HF_TOKEN=YOUR_HF_TOKEN \
+  smart-sentence-finder \
+  --file /app/data/alice_in_wonderland.txt \
+  --query "She wonders about things."
+```
+
+Model cache persistence
+- The container caches models under `/models` using these env vars:
+  - `HF_HOME=/models/huggingface`
+  - `HUGGINGFACE_HUB_CACHE=/models/huggingface/hub`
+  - `SENTENCE_TRANSFORMERS_HOME=/models/sentence-transformers`
+- Mount a host directory (e.g. `-v "$PWD/models:/models"`) so downloads persist across runs and images.
+
+Private/gated models
+- Export a Hugging Face token: `export HF_TOKEN=...` (or `HUGGINGFACE_HUB_TOKEN`).
+- Pass it to Docker with `-e HF_TOKEN=...` as shown above. Do not commit tokens to the repo.
+
+### Notebook (legacy)
+
+The original Jupyter notebook `smart_sentence_finder.ipynb` remains in the repo, but the code has been refactored into Python modules under `src/smart_sentence_finder`. Prefer the CLI for running the workflow.
+
+## Project Structure
+
+```
+src/
+  smart_sentence_finder/
+    __init__.py
+    cli.py              # CLI entry point
+    search.py           # Model loading and ranking
+    text.py             # Chunking, segmentation, cleaning
+data/
+  alice_in_wonderland.txt (example file)
+```

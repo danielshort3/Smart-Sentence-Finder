@@ -1,0 +1,9 @@
+# torch is provided by the base Docker image
+sentence-transformers
+pysbd
+tqdm
+transformers
+scikit-learn
+sentencepiece
+einops
+accelerate
