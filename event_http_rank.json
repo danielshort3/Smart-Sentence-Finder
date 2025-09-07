@@ -1,0 +1,12 @@
+{
+  "version": "2.0",
+  "rawPath": "/rank",
+  "rawQueryString": "",
+  "headers": {"accept": "application/json", "content-type": "application/json"},
+  "requestContext": {
+    "http": {"method": "POST", "path": "/rank", "sourceIp": "127.0.0.1", "protocol": "HTTP/1.1"}
+  },
+  "isBase64Encoded": false,
+  "body": "{\"query\":\"She wonders about things.\",\"top\":5}"
+}
+

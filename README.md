@@ -23,6 +23,9 @@ Default embedding models used:
 
 The code loads models via Sentence-Transformers when available, and falls back to Hugging Face Transformers with mean pooling and L2 normalization otherwise. You can override the model list in the CLI with `--models`.
 
+Backend selection
+- By default, the loader prefers Sentence-Transformers if installed. To force HF Transformers (useful on serverless to avoid ST warnings and heavy deps), set `SSF_EMBED_BACKEND=hf` in your environment.
+
 ## Processing Text
 The project includes several helper functions to process the text:
 - **Text Chunking**: Splits the text into manageable chunks based on character count.
@@ -122,6 +125,101 @@ Model cache persistence
 Private/gated models
 - Export a Hugging Face token: `export HF_TOKEN=...` (or `HUGGINGFACE_HUB_TOKEN`).
 - Pass it to Docker with `-e HF_TOKEN=...` as shown above. Do not commit tokens to the repo.
+
+### Serverless (AWS Lambda)
+
+This repo includes a Lambda container image that bundles:
+- CPU-only PyTorch, FastAPI + Mangum (ASGI on Lambda)
+- The Snowflake embedding model cached in the image layer (no runtime download)
+- Precomputed Alice-in-Wonderland sentences and embeddings
+
+Lambda-specific notes
+- The Lambda image uses HF Transformers by default (`SSF_EMBED_BACKEND=hf`) and omits `sentence-transformers` to keep cold start small and to avoid joblib multiprocess warnings.
+
+Prereqs
+- AWS CLI logged in; ECR access; Docker installed
+- Optional: HF token if the model is gated: `export HF_TOKEN=...`
+
+1) Precompute artifacts locally (optional if already present under `artifacts/`):
+   ```bash
+   python scripts/precompute_alice.py \
+     --file data/alice_in_wonderland.txt \
+     --model "Snowflake/snowflake-arctic-embed-l-v2.0" \
+     --output-dir artifacts/snowflake_arctic_v2
+   ```
+
+2) Build and push the Lambda image (to ECR):
+   ```bash
+   # Configure as needed
+   export AWS_PROFILE=default
+   export AWS_REGION=us-east-2
+   export ECR_REPO=smart-sentence-finder-lambda
+   export IMAGE_TAG=latest
+   export MODEL_NAME="Snowflake/snowflake-arctic-embed-l-v2.0"
+   export HF_TOKEN=${HF_TOKEN:-}
+
+   scripts/deploy/build_push_lambda.sh
+   ```
+
+3) Point your Lambda function to the new image (create if needed):
+   ```bash
+   ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text --profile "$AWS_PROFILE")
+   ECR_URI="$ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE_TAG"
+
+   # Create (first time)
+   aws lambda create-function \
+     --function-name smart-sentence-finder \
+     --package-type Image \
+     --code ImageUri="$ECR_URI" \
+     --role arn:aws:iam::$ACCOUNT_ID:role/service-role/lambda-basic-exec \
+     --region "$AWS_REGION" --profile "$AWS_PROFILE"
+
+   # Or update existing
+   aws lambda update-function-code \
+     --function-name smart-sentence-finder \
+     --image-uri "$ECR_URI" \
+     --publish \
+     --region "$AWS_REGION" --profile "$AWS_PROFILE"
+
+   # Recommended: increase memory/time
+   aws lambda update-function-configuration \
+     --function-name smart-sentence-finder \
+     --timeout 120 --memory-size 2048 \
+     --region "$AWS_REGION" --profile "$AWS_PROFILE"
+   ```
+
+4) Enable a Function URL (simple HTTPS endpoint) and test:
+   ```bash
+   # Create once
+   aws lambda create-function-url-config \
+     --function-name smart-sentence-finder \
+     --auth-type NONE \
+     --cors "{\"AllowOrigins\":[\"*\"],\"AllowMethods\":[\"GET\",\"POST\"],\"AllowHeaders\":[\"*\"]}" \
+     --region "$AWS_REGION" --profile "$AWS_PROFILE"
+
+   URL=$(aws lambda get-function-url-config --function-name smart-sentence-finder --query FunctionUrl --output text --region "$AWS_REGION" --profile "$AWS_PROFILE")
+   curl -sS "$URL/health"
+   curl -sS -X POST "$URL/rank" -H 'content-type: application/json' -d '{"query":"She wonders about things.","top":5}'
+   ```
+
+Client integration (example)
+```js
+async function rank(query, top=5) {
+  const url = "https://YOUR_FUNCTION_ID.lambda-url.us-east-2.on.aws/rank";
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ query, top })
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return await res.json();
+}
+```
+
+Notes
+- The image bundles the model and artifacts; runtime runs fully offline.
+- To switch models, rebuild with `--build-arg MODEL_NAME=...` and repush.
+- See `service/api.py` for the `/health` and `/rank` endpoints.
 
 ### Notebook (legacy)
 

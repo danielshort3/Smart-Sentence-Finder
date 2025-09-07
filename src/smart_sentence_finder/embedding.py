@@ -109,7 +109,25 @@ def _get_hf_token() -> Optional[str]:
     return None
 
 
+def _truthy_env(name: str) -> bool:
+    val = os.getenv(name)
+    if val is None:
+        return False
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _st_embedder(model_name: str, device: torch.device) -> Embedder | None:
+    # Allow forcing HF backend to avoid ST fallback warnings on non-ST models
+    backend = (os.getenv("SSF_EMBED_BACKEND") or "").strip().lower()
+    if backend == "hf" or _truthy_env("SSF_DISABLE_ST"):
+        return None
+    # Some popular embedding repos (e.g., Snowflake Arctic) are not native
+    # sentence-transformers models. Trying to load them via ST produces a
+    # fallback "mean pooling" wrapper and degraded quality. Prefer HF for
+    # these by default, even if sentence-transformers is installed.
+    name_lower = model_name.strip().lower()
+    if name_lower.startswith("snowflake/") or "arctic-embed" in name_lower:
+        return None
     try:
         from sentence_transformers import SentenceTransformer
     except Exception:

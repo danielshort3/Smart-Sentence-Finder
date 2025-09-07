@@ -1,0 +1,169 @@
+# syntax=docker/dockerfile:1.7-labs
+
+# Lambda container for serverless API
+FROM public.ecr.aws/lambda/python:3.11
+
+# Model/cache directories inside the function bundle
+# Allow overriding MODEL_NAME and HF_TOKEN at build time
+ARG MODEL_NAME=Snowflake/snowflake-arctic-embed-l-v2.0
+ARG HF_TOKEN=""
+ARG FORCE_REEMBED=""
+
+ENV HF_HOME=/var/task/models \
+    HUGGINGFACE_HUB_CACHE=/var/task/models/hub \
+    SENTENCE_TRANSFORMERS_HOME=/var/task/models/sentence-transformers \
+    MODEL_NAME=${MODEL_NAME} \
+    HF_TOKEN=${HF_TOKEN} \
+    HUGGINGFACE_HUB_TOKEN=${HF_TOKEN} \
+    ARTIFACT_DIR=/var/task/artifacts/snowflake_arctic_v2 \
+    PYTHONPATH=/var/task/src \
+    CUDA_VISIBLE_DEVICES="" \
+    SSF_EMBED_BACKEND=hf \
+    TOKENIZERS_PARALLELISM=false
+
+# Copy code
+COPY src /var/task/src
+COPY service /var/task/service
+COPY requirements-lambda.txt /var/task/requirements-lambda.txt
+
+# Install deps into the function root (prefer binary wheels to avoid compiling)
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir --only-binary=:all: \
+         --extra-index-url https://download.pytorch.org/whl/cpu \
+         -r /var/task/requirements-lambda.txt -t /var/task
+
+# Pre-cache the embedding model into the image layer to avoid cold-start downloads.
+# Use a Dockerfile heredoc to run a shell script that executes a Python heredoc.
+# If the model is gated, pass a token via: --build-arg HF_TOKEN=...
+RUN <<'SH'
+set -euo pipefail
+python - <<'PY'
+import os
+model_name = os.environ.get('MODEL_NAME', 'thenlper/gte-large')
+token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGINGFACE_HUB_TOKEN')
+for k in ('HF_HUB_OFFLINE','TRANSFORMERS_OFFLINE'):
+    if os.environ.get(k):
+        print(f"[cache] unsetting {k} for build fetch")
+        os.environ.pop(k, None)
+
+def _st_cache():
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        print("[cache] sentence-transformers not installed; skipping ST cache")
+        return False
+    print(f"[cache] sentence-transformers: {model_name}")
+    try:
+        # ST 3.x accepts token kwarg; older used use_auth_token
+        try:
+            m = SentenceTransformer(model_name, token=token)
+        except TypeError:
+            m = SentenceTransformer(model_name, use_auth_token=token)
+        # Touch the model to ensure weights are fully present
+        _ = m.encode(["warmup"], show_progress_bar=False)
+        print("[cache] ST cached")
+        return True
+    except Exception as e:
+        print(f"[cache] ST failed: {e}")
+        return False
+
+def _hf_cache():
+    from transformers import AutoModel, AutoTokenizer
+    print(f"[cache] transformers: {model_name}")
+    kw = dict(trust_remote_code=True)
+    if token:
+        try:
+            kw['token'] = token
+        except TypeError:
+            kw['use_auth_token'] = token
+    AutoTokenizer.from_pretrained(model_name, **kw)
+    AutoModel.from_pretrained(model_name, **kw)
+    print("[cache] HF cached")
+
+ok = _st_cache()
+if not ok:
+    _hf_cache()
+PY
+SH
+
+# Copy precomputed artifacts (create before building this image)
+COPY artifacts /var/task/artifacts
+
+# (Optional) include raw data file for provenance/debugging
+COPY data /var/task/data
+
+# Enable offline mode at runtime (after caching completed)
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
+# Optionally (re)generate embeddings if not present or if model mismatch/forced
+# This step encodes sentences.json with the selected MODEL_NAME so artifacts
+# match the bundled model. If artifacts already exist and match, it's a no-op.
+RUN <<'SH'
+set -euo pipefail
+python - <<'PY'
+import os, json, pathlib
+import numpy as np
+import torch
+from smart_sentence_finder.embedding import load_embedder
+
+artifact_dir = pathlib.Path(os.environ.get('ARTIFACT_DIR','/var/task/artifacts/snowflake_arctic_v2'))
+sent_path = artifact_dir / 'sentences.json'
+emb_path = artifact_dir / 'embeddings.npy'
+model_name = os.environ.get('MODEL_NAME','thenlper/gte-large')
+force = bool(os.environ.get('FORCE_REEMBED'))
+meta_path = artifact_dir / 'meta.json'
+
+def need_rebuild() -> bool:
+    if force:
+        print('[embed] FORCE_REEMBED set; will rebuild')
+        return True
+    # Require all three files
+    if not sent_path.exists() or not emb_path.exists() or not meta_path.exists():
+        print('[embed] Missing sentences/embeddings/meta; will rebuild')
+        return True
+    # Validate meta vs model and file shapes
+    try:
+        meta = json.loads(meta_path.read_text())
+    except Exception as e:
+        print(f"[embed] meta.json unreadable: {e}; will rebuild")
+        return True
+    if meta.get('model_name') != model_name:
+        print(f"[embed] model mismatch: have={meta.get('model_name')} want={model_name}")
+        return True
+    try:
+        arr = np.load(emb_path, mmap_mode='r')
+        n_rows, dim = int(arr.shape[0]), int(arr.shape[1])
+    except Exception as e:
+        print(f"[embed] embeddings.npy unreadable: {e}; will rebuild")
+        return True
+    if meta.get('dim') and int(meta['dim']) != dim:
+        print(f"[embed] dim mismatch: meta={meta['dim']} file={dim}")
+        return True
+    if meta.get('n_sentences') and int(meta['n_sentences']) != n_rows:
+        print(f"[embed] n_sentences mismatch: meta={meta['n_sentences']} file={n_rows}")
+        return True
+    return False
+
+if not need_rebuild():
+    print(f"[embed] Artifacts already present and match model: {artifact_dir}")
+else:
+    # Attempt to build from an existing sentences.json (preferred) else skip
+    if not sent_path.exists():
+        raise SystemExit("No sentences.json found to embed; please precompute or add it to artifacts before build.")
+    sentences = json.loads(sent_path.read_text(encoding='utf-8'))
+    with load_embedder(model_name, torch.device('cpu')) as emb:
+        vecs = emb.encode(sentences, batch_size=16, max_length=512, normalize=True, show_progress=False)
+    np.save(emb_path, vecs.cpu().numpy())
+    meta = {
+        'model_name': model_name,
+        'n_sentences': len(sentences),
+        'dim': int(vecs.shape[1]),
+    }
+    meta_path.write_text(json.dumps(meta))
+    print(f"[embed] Rebuilt embeddings: {emb_path} with meta {meta}")
+PY
+SH
+
+# Lambda entrypoint (module.function)
+CMD ["service.lambda_handler.handler"]

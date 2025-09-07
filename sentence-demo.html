@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Smart Sentence Finder</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121a2e;
+      --panel-2: #0f1629;
+      --text: #e7edf7;
+      --muted: #a5b0c2;
+      --accent: #4f8cff;
+      --accent-2: #7ab1ff;
+      --border: #273352;
+      --ok: #29cf85;
+      --err: #ff5d7a;
+      --radius: 12px;
+      --shadow: 0 10px 30px rgba(0,0,0,.25);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color: var(--text); background: radial-gradient(1200px 480px at 50% -10%, rgba(79,140,255,.12), transparent 60%) var(--bg);
+      display: grid; place-items: start center; padding: 24px; gap: 16px;
+    }
+    .card {
+      width: min(100%, 980px); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); overflow: hidden;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--border); background: linear-gradient(180deg, rgba(79,140,255,.08), transparent);
+    }
+    h1 { margin: 0; font-size: 1.1rem; letter-spacing: .3px; }
+    .muted { color: var(--muted); font-size: .9rem; }
+    .row { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    .section { padding: 16px 18px; }
+    label { display: block; font-size: .9rem; color: var(--muted); margin: 8px 0 6px; }
+    input[type="text"], input[type="number"], input[type="url"] {
+      width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; outline: none;
+    }
+    input::placeholder { color: #7e8aad; }
+    .btn {
+      display: inline-grid; place-items: center; min-width: 120px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--accent);
+      color: white; background: linear-gradient(180deg, var(--accent), var(--accent-2)); cursor: pointer; font-weight: 600; letter-spacing: .2px;
+    }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .btn-secondary { background: transparent; color: var(--text); border-color: var(--border); }
+    .status { display: flex; align-items: center; gap: 10px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); padding: 6px 10px; border-radius: 999px; font-size: .85rem; color: var(--muted); }
+    .pill.ok { border-color: rgba(41,207,133,.4); color: var(--ok); }
+    .pill.err { border-color: rgba(255,93,122,.5); color: var(--err); }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+    .results { display: grid; gap: 8px; }
+    .item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+    .small { font-size: .85rem; color: var(--muted); }
+    .score { font-weight: 600; color: var(--accent-2); }
+    .footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: .85rem; }
+  </style>
+  <script>
+    // Function URL for the sentence finder Lambda
+    const DEFAULT_URL = "https://7aa3jt3tzkinheprc5ds52bihq0itutx.lambda-url.us-east-2.on.aws/"; // smart-sentence-finder
+
+    
+
+    async function health() {
+      const url = getEndpoint();
+      const $status = document.getElementById('health');
+      try {
+        const r = await fetch(url + 'health');
+        if (!r.ok) throw new Error(await r.text());
+        const j = await r.json();
+        $status.className = 'pill ok';
+        $status.textContent = `OK • ${j.model} • sentences: ${j.sentences}`;
+      } catch (e) {
+        $status.className = 'pill err';
+        $status.textContent = 'Health check failed';
+        console.error(e);
+      }
+    }
+
+    function getEndpoint() {
+      return DEFAULT_URL;
+    }
+
+    
+
+    async function onSubmit(ev) {
+      ev.preventDefault();
+      const form = ev.currentTarget;
+      const q = form.query.value.trim();
+      const top = Math.max(1, Math.min(20, parseInt(form.top.value || '5', 10)));
+      if (!q) return;
+      form.submitBtn.disabled = true;
+      form.submitBtn.textContent = 'Searching…';
+      const url = getEndpoint() + 'rank';
+      const headers = { 'content-type': 'application/json' };
+      try {
+        const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ query: q, top }) });
+        const text = await res.text();
+        if (!res.ok) throw new Error(text);
+        const data = JSON.parse(text);
+        renderResults(data);
+      } catch (e) {
+        renderError(e);
+      } finally {
+        form.submitBtn.disabled = false;
+        form.submitBtn.textContent = 'Find Sentences';
+      }
+    }
+
+    function renderResults(data) {
+      const out = document.getElementById('results');
+      out.innerHTML = '';
+      const list = document.createElement('div');
+      list.className = 'results';
+      (data.top || []).forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        const score = document.createElement('div');
+        score.className = 'small';
+        score.innerHTML = `Score <span class="score">${(item.score ?? 0).toFixed(4)}</span>`;
+        const sent = document.createElement('div');
+        sent.textContent = item.sentence || '';
+        div.appendChild(score);
+        div.appendChild(sent);
+        list.appendChild(div);
+      });
+      if (!list.children.length) {
+        const m = document.createElement('div');
+        m.className = 'small';
+        m.textContent = 'No results.';
+        out.appendChild(m);
+      } else {
+        out.appendChild(list);
+      }
+    }
+
+    function renderError(err) {
+      const out = document.getElementById('results');
+      out.innerHTML = '';
+      const box = document.createElement('div');
+      box.className = 'item';
+      const h = document.createElement('div');
+      h.className = 'small';
+      h.style.color = 'var(--err)';
+      h.textContent = 'Error';
+      const pre = document.createElement('pre');
+      pre.style.whiteSpace = 'pre-wrap';
+      pre.textContent = String(err);
+      box.appendChild(h); box.appendChild(pre);
+      out.appendChild(box);
+    }
+
+    function onLoad() {
+      document.getElementById('form').addEventListener('submit', onSubmit);
+      health();
+    }
+    window.addEventListener('DOMContentLoaded', onLoad);
+  </script>
+  <meta name="description" content="Find the most relevant sentences in Alice in Wonderland for your query using precomputed embeddings and the Snowflake model." />
+  <meta name="theme-color" content="#0b1020" />
+  <link rel="icon" href="data:," />
+  <!-- Basic SEO / Open Graph -->
+  <meta property="og:title" content="Smart Sentence Finder" />
+  <meta property="og:description" content="Query Alice in Wonderland and get the most similar sentences using embeddings." />
+  <meta property="og:type" content="website" />
+</head>
+<body>
+  <div class="card">
+    <header>
+      <h1>Smart Sentence Finder</h1>
+      <div class="status">
+        <span id="health" class="pill">Checking…</span>
+      </div>
+    </header>
+    <div class="section">
+      <div class="row">
+        <form id="form">
+          <label for="query">Your query</label>
+          <input id="query" name="query" type="text" placeholder="e.g., She wonders about things." required />
+          <div class="grid-2">
+            <div>
+              <label for="top">Top results (1–20)</label>
+              <input id="top" name="top" type="number" min="1" max="20" value="5" />
+            </div>
+          </div>
+          <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+            <button type="submit" name="submitBtn" class="btn">Find Sentences</button>
+            <button type="button" class="btn btn-secondary" onclick="document.getElementById('query').value='She wonders about things.'">Use Example</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="section">
+      <div id="results" class="results">
+        <div class="small">Results will appear here.</div>
+      </div>
+    </div>
+    
+  </div>
+</body>
+</html>

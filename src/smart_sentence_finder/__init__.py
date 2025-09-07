@@ -1,11 +1,11 @@
-__all__ = [
-    "split_by_character_count",
-    "process_chunk",
-    "clean_sentences",
-    "process",
-    "benchmark_models",
-]
+"""Lightweight package init to avoid heavy imports at import time.
 
-from .text import split_by_character_count, process_chunk, clean_sentences
-from .search import process
-from .benchmark import benchmark_models
+Modules should be imported explicitly, e.g.:
+    from smart_sentence_finder.embedding import load_embedder
+    from smart_sentence_finder.text import segment_text
+
+This keeps optional deps (like pysbd) from being required unless the
+corresponding module is actually used.
+"""
+
+__all__: list[str] = []

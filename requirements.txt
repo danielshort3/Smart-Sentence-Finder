@@ -7,3 +7,6 @@ scikit-learn
 sentencepiece
 einops
 accelerate
+fastapi
+uvicorn
+mangum

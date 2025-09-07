@@ -31,6 +31,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY pyproject.toml ./
 COPY src ./src
 COPY data ./data
+COPY scripts ./scripts
 COPY README.md ./README.md
 
 ENV PYTHONPATH=/app/src
