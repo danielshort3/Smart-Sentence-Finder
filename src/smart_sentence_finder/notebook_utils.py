@@ -11,7 +11,6 @@ from typing import Any, Sequence
 import torch
 
 from .benchmark import benchmark_models
-from .benchmark_chart import BenchmarkChartPaths, save_benchmark_chart_assets
 from .cli import DEFAULT_MODELS, normalize_text
 from .search import process
 from .text import clean_sentences, segment_text
@@ -287,28 +286,3 @@ def save_benchmark_results(
         writer.writerows(benchmark_rows)
 
     return benchmark_json, benchmark_csv
-
-
-def save_benchmark_outputs(
-    output_dir: Path,
-    presentation_dir: Path,
-    data_file: Path,
-    run_ts: str,
-    benchmark_rows: Sequence[dict[str, object]],
-    chart_title: str = "Silhouette Score Comparison",
-) -> tuple[Path, Path, BenchmarkChartPaths]:
-    """Save benchmark tabular outputs and presentation chart assets."""
-
-    benchmark_json, benchmark_csv = save_benchmark_results(
-        output_dir,
-        data_file,
-        run_ts,
-        benchmark_rows,
-    )
-    chart_paths = save_benchmark_chart_assets(
-        benchmark_rows,
-        svg_path=presentation_dir / "silhouette_score_comparison.svg",
-        png_path=presentation_dir / "silhouette_score_comparison.png",
-        title=chart_title,
-    )
-    return benchmark_json, benchmark_csv, chart_paths

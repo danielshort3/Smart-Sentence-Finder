@@ -268,7 +268,7 @@ Notes
 
 ## Notebook Notes
 
-The notebook `smart_sentence_finder.ipynb` is a presentation-friendly version of the current workflow. It uses the refactored Python modules under `src/smart_sentence_finder`, so the notebook and CLI share the same core code paths.
+The notebook `smart_sentence_finder.ipynb` is a walkthrough version of the current workflow. It uses the refactored Python modules under `src/smart_sentence_finder`, so the notebook and CLI share the same core code paths.
 
 ## Project Structure
 
@@ -277,7 +277,6 @@ src/
   smart_sentence_finder/
     __init__.py
     benchmark.py        # Silhouette benchmark over embedding models
-    benchmark_chart.py  # Presentation chart generation for benchmark outputs
     cli.py              # CLI entry point for rank and benchmark
     embedding.py        # Embedder loading and batching
     notebook_utils.py   # Shared helpers used by the demo notebook
@@ -285,7 +284,5 @@ src/
     text.py             # Chunking, segmentation, cleaning
 data/
   alice_in_wonderland.txt (example file)
-scripts/
-  plot_benchmark_scores.py  # Regenerate presentation benchmark charts
 smart_sentence_finder.ipynb # Presentation-style walkthrough notebook
 ```
