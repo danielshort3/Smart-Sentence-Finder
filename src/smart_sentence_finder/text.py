@@ -47,7 +47,11 @@ def segment_text(text: str, chars_per_chunk: int = 10_000) -> List[str]:
         num_threads = max(1, os.cpu_count() or 1)
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(process_chunk, chunk) for chunk in chunks]
-            sentences = [s for f in tqdm(as_completed(futures), total=len(futures), leave=False) for s in f.result()]
+            sentences = [
+                s
+                for f in tqdm(as_completed(futures), total=len(futures), leave=False, dynamic_ncols=True)
+                for s in f.result()
+            ]
     else:
         sentences = process_chunk(text)
 
@@ -58,7 +62,7 @@ def clean_sentences(sentences: Iterable[str]) -> List[str]:
     cleaned_sentences: List[str] = []
     modification_count = 0
 
-    for sentence in tqdm(sentences):
+    for sentence in tqdm(sentences, leave=False, dynamic_ncols=True):
         trimmed_sentence = sentence.strip()
         cleaned_sentence = re.sub(r"\s+", " ", trimmed_sentence)
 

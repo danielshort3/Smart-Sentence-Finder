@@ -55,6 +55,8 @@ class Embedder:
                 iterator,
                 total=(len(texts) + batch_size - 1) // batch_size,
                 desc=progress_desc or "Embedding",
+                leave=False,
+                dynamic_ncols=True,
             )
         for i in iterator:
             batch = texts[i : i + batch_size]

@@ -3,3 +3,7 @@
 /output
 /data
 /.ipynb_checkpoints
+/.codex
+/monument_health.pptx
+__pycache__/
+*.py[cod]

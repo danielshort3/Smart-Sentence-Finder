@@ -55,7 +55,13 @@ def compute_best_silhouette(
 ) -> Tuple[int, float]:
     best_k = k_min
     best_score = -1.0
-    for k in tqdm(range(k_min, k_max + 1), total=(k_max - k_min + 1), desc="Silhouette k"):
+    for k in tqdm(
+        range(k_min, k_max + 1),
+        total=(k_max - k_min + 1),
+        desc="Silhouette k",
+        leave=False,
+        dynamic_ncols=True,
+    ):
         labels = KMeans(n_clusters=k, n_init=10, random_state=random_state).fit_predict(X)
         score = silhouette_score(X, labels, metric=metric)
         if score > best_score:
@@ -79,7 +85,7 @@ def benchmark_models(
         sentences = sentences[:max_sentences]
 
     results: List[BenchmarkResult] = []
-    for model_name in tqdm(models, desc="Models"):
+    for model_name in tqdm(models, desc="Models", leave=False, dynamic_ncols=True):
         vecs, param_count = embed_sentences(
             model_name,
             sentences,

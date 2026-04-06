@@ -12,7 +12,6 @@ from .benchmark import benchmark_models
 
 DEFAULT_MODELS: List[str] = [
     "Qwen/Qwen3-Embedding-4B",
-    "jinaai/jina-embeddings-v3",
     "Snowflake/snowflake-arctic-embed-l-v2.0",
     "NovaSearch/stella_en_1.5B_v5",
     "thenlper/gte-large",
